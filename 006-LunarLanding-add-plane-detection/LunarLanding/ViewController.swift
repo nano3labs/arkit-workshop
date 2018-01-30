@@ -140,5 +140,16 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
     planeNode.eulerAngles.x = -.pi / 2
     node.addChildNode(planeNode)
   }
+  
+  func renderer(_ renderer: SCNSceneRenderer, didUpdate node: SCNNode, for anchor: ARAnchor) {
+    guard let planeAnchor = anchor as? ARPlaneAnchor,
+      let planeNode = node.childNodes.first,
+      let plane = planeNode.geometry as? SCNPlane
+      else { return }
+    
+    planeNode.position = SCNVector3(planeAnchor.center.x, 0, planeAnchor.center.z)
+    plane.width = CGFloat(planeAnchor.extent.x)
+    plane.height = CGFloat(planeAnchor.extent.z)
+  }
 }
 
