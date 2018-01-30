@@ -10,85 +10,188 @@ import UIKit
 import SceneKit
 import ARKit
 
-class ViewController: UIViewController, ARSCNViewDelegate {
-
-    @IBOutlet var sceneView: ARSCNView!
-    var anchorCount = 0
-    
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        
-        // Set the view's delegate
-        sceneView.delegate = self
-        
-        // Show statistics such as fps and timing information
-        sceneView.showsStatistics = true
-        
-        // Create a new scene
-        // let scene = SCNScene(named: "art.scnassets/ship.scn")!
-        let scene = SCNScene()
-      
-        let moon = SCNSphere(radius: 0.2)
-        moon.firstMaterial!.diffuse.contents = UIImage(named: "art.scnassets/moon.png")
-        moon.firstMaterial!.normal.contents = UIImage(named: "art.scnassets/moon-normal")
-        moon.firstMaterial!.normal.intensity = 3.0
-        let moonNode = SCNNode(geometry: moon)
-        moonNode.position = SCNVector3(0, 0, -0.8)
-      
-        scene.rootNode.addChildNode(moonNode)
-      
-        // Set the scene to the view
-        sceneView.scene = scene
-        sceneView.debugOptions = [ARSCNDebugOptions.showFeaturePoints, ARSCNDebugOptions.showWorldOrigin]
-      
-    }
-    
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        
-        // Create a session configuration
-        let configuration = ARWorldTrackingConfiguration()
-        configuration.isLightEstimationEnabled = true
-
-        // Run the view's session
-        sceneView.session.run(configuration)
-    }
-    
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        
-        // Pause the view's session
-        sceneView.session.pause()
-    }
-    
-    override func didReceiveMemoryWarning() {
-        super.didReceiveMemoryWarning()
-        // Release any cached data, images, etc that aren't in use.
-    }
-
-    // MARK: - ARSCNViewDelegate
+class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
   
-/*
-    // Override to create and configure nodes for anchors added to the view's session.
-    func renderer(_ renderer: SCNSceneRenderer, nodeFor anchor: ARAnchor) -> SCNNode? {
-        let node = SCNNode()
-     
-        return node
-    }
-*/
+  @IBOutlet var sceneView: ARSCNView!
+  var anchorCount = 0
+  var moonNode = SCNNode()
+  var frozen = false
+  let button = UIButton(type: .system)
+  let trackingStateLabel = UILabel()
   
-    func session(_ session: ARSession, didFailWithError error: Error) {
-        // Present an error message to the user
-        
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    
+    // Set the view's delegate
+    sceneView.delegate = self
+    
+    // Show statistics such as fps and timing information
+    sceneView.showsStatistics = true
+    
+    // Create a new scene
+    // let scene = SCNScene(named: "art.scnassets/ship.scn")!
+    let scene = SCNScene()
+    
+    let moon = SCNSphere(radius: 0.2)
+    moon.firstMaterial!.diffuse.contents = UIImage(named: "art.scnassets/moon.png")
+    moon.firstMaterial!.normal.contents = UIImage(named: "art.scnassets/moon-normal")
+    moon.firstMaterial!.normal.intensity = 3.0
+    moon.firstMaterial!.lightingModel = .physicallyBased
+    moonNode = SCNNode(geometry: moon)
+    moonNode.name = "Moon"
+    moonNode.position = SCNVector3(0, 0, -0.8)
+    
+    scene.rootNode.addChildNode(moonNode)
+    
+    // Set the scene to the view
+    sceneView.scene = scene
+    sceneView.debugOptions = [ARSCNDebugOptions.showFeaturePoints, ARSCNDebugOptions.showWorldOrigin]
+    
+    scene.rootNode.camera?.name = "Camera"
+    scene.rootNode.light?.name = "Light"
+    
+    button.frame = CGRect(x: 50, y: view.frame.height - 50, width: 100, height: 50)
+    button.setTitle("Freeze", for: .normal)
+    button.addTarget(self, action: #selector(freezeFrame), for: .touchUpInside)
+    sceneView.addSubview(button)
+    
+    trackingStateLabel.frame = CGRect(x: view.frame.width / 2 - (200 / 2), y: 50, width: 200, height: 100)
+    trackingStateLabel.numberOfLines = 2
+    trackingStateLabel.text = "Learning about surrounding... Try moving camera around"
+    sceneView.addSubview(trackingStateLabel)
+  }
+  
+  override func viewWillAppear(_ animated: Bool) {
+    super.viewWillAppear(animated)
+    
+    // Create a session configuration
+    let configuration = ARWorldTrackingConfiguration()
+    configuration.isLightEstimationEnabled = true
+    configuration.planeDetection = .horizontal
+    
+    // Run the view's session
+    sceneView.session.run(configuration)
+    
+//    let gestureReconginzer = UITapGestureRecognizer(target: self, action: #selector(freezeFrame))
+//    self.view.addGestureRecognizer(gestureReconginzer)
+    
+    let panGestureRecognizer = UIPanGestureRecognizer(target: self, action: #selector(handlePan))
+    self.view.addGestureRecognizer(panGestureRecognizer)
+  }
+  
+//  @objc
+//  func moveSphere(gesture: UIPanGestureRecognizer) {
+//    let touchLocation = gesture.location(in: self.view)
+//
+//
+//  }
+  
+  var previousTranslationY:Float = 0.0
+  @objc func handlePan(gesture: UIPanGestureRecognizer) {
+    let translation = Float(gesture.translation(in: view).y)
+    let rotationScale = Float(360.0 / view.frame.height)
+    let yTranslation = Float(translation * rotationScale)
+    let yTranslationDelta = yTranslation - previousTranslationY
+    previousTranslationY = yTranslation
+    
+    if gesture.state == .began || gesture.state == .changed {
+      let rotationAmount = Float(yTranslationDelta)
+      rotateMoon(rotationAmount)
+    } else if gesture.state == .ended {
+      previousTranslationY = 0 // reset translations after pan ends
+    }
+  }
+  
+  func rotateMoon(_ rotationAmount: Float) {
+    let rotateX = SCNMatrix4MakeRotation(GLKMathDegreesToRadians(rotationAmount), 1, 0, 0)
+    moonNode.transform = SCNMatrix4Mult(rotateX, moonNode.transform)
+  }
+  
+  @objc
+  func freezeFrame(gesture: UITapGestureRecognizer) {
+    if frozen {
+      let configuration = ARWorldTrackingConfiguration()
+      configuration.isLightEstimationEnabled = true
+      configuration.planeDetection = .horizontal
+      sceneView.session.run(configuration)
+      button.setTitle("Freeze", for: .normal)
+    } else {
+      sceneView.session.pause()
+      button.setTitle("Unfreeze", for: .normal)
     }
     
-    func sessionWasInterrupted(_ session: ARSession) {
-        // Inform the user that the session has been interrupted, for example, by presenting an overlay
-        
-    }
+    frozen = !frozen
+  }
+  
+  override func viewWillDisappear(_ animated: Bool) {
+    super.viewWillDisappear(animated)
     
-    func sessionInterruptionEnded(_ session: ARSession) {
-        // Reset tracking and/or remove existing anchors if consistent tracking is required
-        
+    // Pause the view's session
+    sceneView.session.pause()
+  }
+  
+  override func didReceiveMemoryWarning() {
+    super.didReceiveMemoryWarning()
+    // Release any cached data, images, etc that aren't in use.
+  }
+  
+  // MARK: - ARSCNViewDelegate
+  
+  /*
+   // Override to create and configure nodes for anchors added to the view's session.
+   func renderer(_ renderer: SCNSceneRenderer, nodeFor anchor: ARAnchor) -> SCNNode? {
+   let node = SCNNode()
+   
+   return node
+   }
+   */
+  
+  func session(_ session: ARSession, didFailWithError error: Error) {
+    // Present an error message to the user
+    
+  }
+  
+  func sessionWasInterrupted(_ session: ARSession) {
+    // Inform the user that the session has been interrupted, for example, by presenting an overlay
+    
+  }
+  
+  func sessionInterruptionEnded(_ session: ARSession) {
+    // Reset tracking and/or remove existing anchors if consistent tracking is required
+    
+  }
+  
+  func session(_ session: ARSession, didUpdate frame: ARFrame) {
+    
+  }
+  
+  func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
+    
+    switch(camera.trackingState) {
+    case .notAvailable:
+      trackingStateLabel.text = "Cannot start ARSession!"
+      
+    case .limited(.initializing):
+      trackingStateLabel.text = "Learning about surrounding. Try moving around"
+    case .limited(.insufficientFeatures):
+      trackingStateLabel.text = "Try turning on more lights and moving around"
+    case .limited(.excessiveMotion):
+      trackingStateLabel.text = "Try moving your phone slower"
+      
+    case .normal:
+      trackingStateLabel.text = ""
     }
+  }
+  
+  func renderer(_ renderer: SCNSceneRenderer, didAdd node: SCNNode, for anchor: ARAnchor) {
+    guard let planeAnchor = anchor as? ARPlaneAnchor else { return }
+    
+    let plane = SCNPlane(width: CGFloat(planeAnchor.extent.x), height: CGFloat(planeAnchor.extent.z))
+    let planeNode = SCNNode(geometry: plane)
+    planeNode.position = SCNVector3(planeAnchor.center.x, 0, planeAnchor.center.y)
+    planeNode.eulerAngles.x = -.pi / 2
+    planeNode.opacity = 0.25
+    node.addChildNode(planeNode)
+  }
 }
+
