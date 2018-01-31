@@ -13,78 +13,133 @@ import ARKit
 class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
   
   @IBOutlet var sceneView: ARSCNView!
-  var anchorCount = 0
-  var moonNode = SCNNode()
   let button = UIButton(type: .system)
   let trackingStateLabel = UILabel()
   
   override func viewDidLoad() {
     super.viewDidLoad()
     
-    // Set the view's delegate
+    addSceneView()
+    addTrackingStateLabel()
+    addGestureRecognizers()
+  }
+  
+  func addSceneView() {
     sceneView.delegate = self
     
-    // Show statistics such as fps and timing information
     sceneView.showsStatistics = true
     
-    // Create a new scene
-    // let scene = SCNScene(named: "art.scnassets/ship.scn")!
     let scene = SCNScene()
-    
-    let moon = SCNSphere(radius: 0.2)
-    moon.firstMaterial!.diffuse.contents = UIImage(named: "art.scnassets/moon.png")
-    moon.firstMaterial!.normal.contents = UIImage(named: "art.scnassets/moon-normal")
-    moon.firstMaterial!.normal.intensity = 3.0
-    moon.firstMaterial!.lightingModel = .physicallyBased
-    moonNode = SCNNode(geometry: moon)
-    moonNode.name = "Moon"
-    moonNode.position = SCNVector3(0, 0, -0.8)
-    moonNode.physicsBody = SCNPhysicsBody.kinematic()
-    
-    let rotationAction = SCNAction.rotateBy(x: 0, y: 2 * .pi, z: 0, duration: 15.0)
-    let repeatAction = SCNAction.repeatForever(rotationAction)
-    moonNode.runAction(repeatAction)
-    
     scene.rootNode.addChildNode(moonNode)
+    scene.physicsWorld.gravity = SCNVector3(0, -1.622, 0) // gravity on the moon = 1/6 * Earth's gravity, in m/s^2
     
-    // Set the scene to the view
     sceneView.scene = scene
-    scene.physicsWorld.gravity = SCNVector3(0, -1.622, 0)
     sceneView.debugOptions = [ARSCNDebugOptions.showFeaturePoints, ARSCNDebugOptions.showWorldOrigin]
     sceneView.automaticallyUpdatesLighting = true
+    sceneView.isPlaying = true
     
+  }
+  
+  var moonNode: SCNNode {
+    var moonGeometry: SCNSphere {
+      let moon = SCNSphere(radius: 0.2)
+      moon.firstMaterial!.diffuse.contents = UIImage(named: "art.scnassets/moon.png")
+      moon.firstMaterial!.normal.contents = UIImage(named: "art.scnassets/moon-normal")
+      moon.firstMaterial!.normal.intensity = 3.0
+      moon.firstMaterial!.lightingModel = .physicallyBased
+      return moon
+    }
+    
+    let moon = SCNNode(geometry: moonGeometry)
+    moon.name = "Moon"
+    moon.position = SCNVector3(0, 0, -0.8)
+    moon.physicsBody = SCNPhysicsBody.kinematic()
+    
+    var rotationOnRepeat: SCNAction {
+      let rotationAction = SCNAction.rotateBy(x: 0, y: 2 * .pi, z: 0, duration: 15.0)
+      let repeatAction = SCNAction.repeatForever(rotationAction)
+      return repeatAction
+    }
+    
+    moon.runAction(rotationOnRepeat)
+    return moon
+  }
+  
+  func addTrackingStateLabel() {
     trackingStateLabel.frame = CGRect(x: view.frame.width / 2 - (200 / 2), y: 50, width: 200, height: 100)
     trackingStateLabel.numberOfLines = 2
     trackingStateLabel.text = "Learning about surrounding... Try moving camera around"
     sceneView.addSubview(trackingStateLabel)
-    sceneView.isPlaying = true
-    
-    addGestureRecognizers()
   }
   
   func addGestureRecognizers() {
     let tapGestureRecognizer = UITapGestureRecognizer(target: self, action: #selector(handleTap))
     view.addGestureRecognizer(tapGestureRecognizer)
-    
+    // view refers to the sceneView instance
     let panGestureRecognizer = UIPanGestureRecognizer(target: self, action: #selector(handlePan))
     view.addGestureRecognizer(panGestureRecognizer)
   }
   
-  var selectedNode:SCNNode? = nil
+  
+  
+  @objc func handleTap(gesture: UITapGestureRecognizer) {
+    let location = gesture.location(in: view)
+    
+    let hitResult = sceneView.hitTest(location, types: .existingPlaneUsingExtent)
+    
+    if let hitPoint = hitResult.first {
+      
+      let x = hitPoint.worldTransform.columns.3.x
+      let y = hitPoint.worldTransform.columns.3.y
+      let z = hitPoint.worldTransform.columns.3.z
+
+      let apolloNode = newApolloNode()
+      apolloNode.position = SCNVector3(x, y + 1.59282, z)
+
+      sceneView.scene.rootNode.addChildNode(apolloNode)
+    }
+  }
+  
+  
+  var apolloModel: SCNNode {
+    let apolloScene = SCNScene(named: "art.scnassets/apollo-11.scn")!
+    let apollo = apolloScene.rootNode.childNode(withName: "apollo-11", recursively: false)!
+    apollo.scale = SCNVector3(0.00034, 0.00034, 0.00034)
+    apollo.rotation = SCNVector4(0, 1, 0, CGFloat.pi / 2)
+    
+    let fire = SCNParticleSystem(named: "art.scnassets/fire.scnp", inDirectory: "/")!
+    let emitter = apollo.childNode(withName: "emitter", recursively: true)!
+    emitter.addParticleSystem(fire)
+    
+    return apollo
+  }
+  
+  func newApolloNode() -> SCNNode {
+    let apolloNode = SCNNode()
+    let collider = SCNBox(width: 0.1, height: 0.1, length: 0.1, chamferRadius: 0)
+    apolloNode.physicsBody = SCNPhysicsBody(type: .dynamic, shape: SCNPhysicsShape(geometry: collider, options: nil))
+    apolloNode.physicsBody?.mass = 1.0
+    apolloNode.physicsBody?.restitution = 0.0
+    apolloNode.physicsBody?.friction = 1.0
+    apolloNode.addChildNode(apolloModel)
+    
+    return apolloNode
+  }
+  
+  var selectedNode:SCNNode?
+
   @objc func handlePan(gesture: UIPanGestureRecognizer) {
     let location = gesture.location(in: view)
     
-    if (gesture.state == .began) {
+    switch gesture.state {
+    case .began: // choose which object to move
       let objectsHit = sceneView.hitTest(location, options: nil)
       
-      if let objectHit = objectsHit.first {
-        if objectHit.node.name == "apollo-11" {
-          selectedNode = objectHit.node
-        } else {
-          selectedNode = nil
-        }
+      if let firstObject = objectsHit.first,
+        firstObject.node.name == "apollo-11" {
+        selectedNode = firstObject.node
       }
-    } else if (gesture.state == .changed) {
+    case .changed: // move the chosen object
       guard let m = selectedNode else { return }
       let hitResult = sceneView.hitTest(location, types: .existingPlaneUsingExtent)
       if let hitPoint = hitResult.first {
@@ -93,46 +148,11 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
         let z = hitPoint.worldTransform.columns.3.z
         
         m.parent!.worldPosition = SCNVector3(x, y, z)
-      } else if (gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed) {
-        selectedNode = nil
       }
+    default:
+      selectedNode = nil
     }
-  }
-  
-  @objc func handleTap(gesture: UITapGestureRecognizer) {
-    let location = gesture.location(in: view)
     
-    let hitResult = sceneView.hitTest(location, types: .existingPlaneUsingExtent)
-    
-    if let hitPoint = hitResult.first {
-      let x = hitPoint.worldTransform.columns.3.x
-      let y = hitPoint.worldTransform.columns.3.y
-      let z = hitPoint.worldTransform.columns.3.z
-      
-      let apolloScene = SCNScene(named: "art.scnassets/apollo-11.scn")!
-      let apollo = apolloScene.rootNode.childNode(withName: "apollo-11", recursively: false)!
-      apollo.scale = SCNVector3(0.00034, 0.00034, 0.00034)
-      apollo.rotation = SCNVector4(0, 1, 0, CGFloat.pi / 2)
-      let apolloNode = SCNNode()
-      
-      
-//      apolloNode.position = SCNVector3(x, y + 0.09282, z)
-      apolloNode.position = SCNVector3(x, y + 1.59282, z)
-      
-      let collider = SCNBox(width: 0.1, height: 0.1, length: 0.1, chamferRadius: 0)
-      apolloNode.physicsBody = SCNPhysicsBody(type: .dynamic, shape: SCNPhysicsShape(geometry: collider, options: nil))
-      apolloNode.physicsBody?.mass = 1.0
-      apolloNode.physicsBody?.restitution = 0.0
-      apolloNode.physicsBody?.friction = 1.0
-      
-      apolloNode.addChildNode(apollo)
-      
-      let fire = SCNParticleSystem(named: "art.scnassets/fire.scnp", inDirectory: "/")!
-      let emitter = apollo.childNode(withName: "emitter", recursively: true)!
-      emitter.addParticleSystem(fire)
-      
-      sceneView.scene.rootNode.addChildNode(apolloNode)
-    }
   }
   
   override func viewWillAppear(_ animated: Bool) {
@@ -161,14 +181,6 @@ class ViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
   
   // MARK: - ARSCNViewDelegate
   
-  /*
-   // Override to create and configure nodes for anchors added to the view's session.
-   func renderer(_ renderer: SCNSceneRenderer, nodeFor anchor: ARAnchor) -> SCNNode? {
-   let node = SCNNode()
-   
-   return node
-   }
-   */
   
   func session(_ session: ARSession, didFailWithError error: Error) {
     // Present an error message to the user
